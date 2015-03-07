@@ -4,20 +4,17 @@ from collections import defaultdict
 from pprint import pprint
 
 import openpyxl
-from transliterate import translit
-
-
-tr = lambda russian_word: translit(russian_word, 'ru', reversed=True)
 
 
 def make_player(ws, row_index):
     i = str(row_index)
     last_name_ru, first_name_ru = ws['E' + i].value.split()
+    last_name_en, first_name_en = ws['C' + i].value.split()
     return {
         'first_name_ru': first_name_ru,
         'last_name_ru': last_name_ru,
-        'first_name_en': tr(first_name_ru),
-        'last_name_en': tr(last_name_ru),
+        'first_name_en': first_name_en,
+        'last_name_en': last_name_en,
         'role_en': ws['D' + i].value,
     }
 
@@ -105,8 +102,9 @@ class Pause(Event):
 
 
 class HighPitchEvent(Event):
-    def wrap(self, message):
-        return '<prosody rate="slow" pitch="high">' + message + '</prosody>'
+    # def wrap(self, message):
+    #     return '<prosody rate="slow" pitch="high">' + message + '</prosody>'
+    pass
 
 
 class WinnerEvent(HighPitchEvent):
