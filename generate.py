@@ -5,6 +5,18 @@ from pprint import pprint
 
 import openpyxl
 
+
+import pymorphy2
+morph = pymorphy2.MorphAnalyzer()
+
+def to(word, *categories):
+    return morph.parse(word)[0].inflect(set(categories)).word
+
+
+def with_number_ru(number, word):
+    return morph.parse(word)[0].make_agree_with_number(number).word
+
+
 def make_player(ws, row_index):
     i = str(row_index)
     last_name_ru, first_name_ru = ws['E' + i].value.split()
@@ -129,14 +141,14 @@ class WinnerEvent(HighPitchEvent):
     def gen_russian(self):
         time = {'regulation': ' в основное время', 'overtime': ' в овертайме',
                 'shootout': ' по буллитам'}
-        return (self.log['winner']['ru'] + ' обыграл ' + self.log['loser']['ru']
-                + time[self.log['time']] + ' со счётом ' + self.log['score'])
+        return [self.log['winner']['ru'] + ' обыграл ' + self.log['loser']['ru']
+                + time[self.log['time']] + ' со счётом ' + self.log['score']]
 
     def gen_english(self):
         time = {'regulation': ' in regulation', 'overtime': ' in overtime',
                 'shootout': ' in shootout'}
-        return (self.log['winner']['en'] + ' picked up a ' + self.log['score']
-                + ' win against ' + self.log['loser']['en'] + time[self.log['time']])
+        return [self.log['winner']['en'] + ' picked up a ' + self.log['score']
+                + ' win against ' + self.log['loser']['en'] + time[self.log['time']]]
 
 
 def join_with_and(words, and_word):
@@ -168,41 +180,111 @@ class GoalsSummaryEvent(HighPitchEvent):
         winning = {'regulation': '', 'overtime': ', ',
                   'shootout': ', ' + self.log['winning_goal']['last_name']['ru']
                   + ' забросил победный буллит'}
-        return ('В составе ' + self.log['winner']['ru'] + ' отличились '
+        return ['В составе ' + self.log['winner']['ru'] + ' отличились '
                 + join_with_and_ru(self.goals_by_team_ru[self.log['winner']['en']]) 
                 + winning[self.log['time']]
                 + ', а за ' + self.log['loser']['ru'] + ' шайбы забили '
-                + join_with_and_ru(self.goals_by_team_ru[self.log['loser']['en']]))
+                + join_with_and_ru(self.goals_by_team_ru[self.log['loser']['en']])]
 
     def gen_english(self):
         winning = {'regulation': '', 'overtime': ', ',
                   'shootout': ', ' + self.log['winning_goal']['last_name']['en']
                   + ' scored the winning bullet'}
-        return (join_with_and_en(self.goals_by_team_en[self.log['winner']['en']])
+        return [join_with_and_en(self.goals_by_team_en[self.log['winner']['en']])
                 + ' were on target for ' + self.log['winner']['en']
                 + winning[self.log['time']] + ', while '
                 + join_with_and_en(self.goals_by_team_en[self.log['loser']['en']])
-                + ' replied for ' + self.log['loser']['en'])
+                + ' replied for ' + self.log['loser']['en']]
 
 
-EVENT_CLASSES = [WinnerEvent, GoalsSummaryEvent]#, Pause]
+ORDINAL = ['первый', 'второй', 'третий']
+
+
+def join_sentences(sentences):
+    return ' '.join(sentence[:1].upper() + sentence[1:] + '.' for sentence in sentences)
+
+
+def say_player_ru(player, team):
+    return player['role']['ru'] + ' ' + team + ' ' + player['last_name']['ru']
+
+
+class GoalsByPeriodEvent(Event):
+    def __init__(self, log):
+        super(GoalsByPeriodEvent, self).__init__(log)
+        periods = self.periods = [defaultdict(list) for i in range(4)]
+        for goal in log['goals']:
+            if goal['minute'] <= 20:
+                period_index = 0
+            elif goal['minute'] <= 40:
+                period_index = 1
+            elif goal['minute'] <= 60:
+                period_index = 2
+            else:
+                period_index = 3
+            periods[period_index][goal['team']].append(goal)
+
+    def gen_russian(self):
+        chunks = []
+        for i, period in enumerate(self.periods[:3]):
+            if not period:
+                chunks.append(ORDINAL[i] + ' период оказался нерезультативным')
+            elif len(period) == 1:
+                team, goals = list(period.items())[0]
+                prefix = 'в ' + to(ORDINAL[i], 'loct') + ' периоде '
+                if len(goals) == 1:
+                    goal = goals[0]
+                    if goal['minute'] % 20 >= 15:
+                        prefix = 'под конец ' + to(ORDINAL[i], 'gent') + ' периода '
+                    chunks.append(
+                        prefix + say_player_ru(goal['author'], team) + ' забил одну шайбу'
+                    )
+                else:
+                    num_goals = len(goals)
+                    chunks.append(
+                        prefix + ' удача была на стороне игроков ' + team
+                        + ', которые забросили ' + str(num_goals) + ' '
+                        + with_number_ru(num_goals, 'шайбу')
+                    )
+            else:
+                (team1, goals1), (team2, goals2) = sorted(period.items(), key=lambda x: len(x[1]))
+                num_goals1 = len(goals1)
+                num_goals2 = len(goals2)
+                chunks.append(
+                    'в ' + to(ORDINAL[i], 'loct') + ' периоде ' + team1 + ' '
+                    + str(num_goals1) + ' ' + with_number_ru(num_goals1, 'раз')
+                    + ' поразил ворота соперников, ' + team2 + ' ответил ' + str(num_goals2) + ' '
+                    + with_number_ru(num_goals2, 'забитой') + ' '
+                    + with_number_ru(num_goals2, 'шайбой')
+                )
+
+        return chunks
+
+    gen_english = gen_russian
+
+
+EVENT_CLASSES = [WinnerEvent,
+                 GoalsSummaryEvent,
+                 GoalsByPeriodEvent,
+                 ]
 
 
 def form_report(log):
-    russian_report = []
-    english_report = []
-    reports = [russian_report, english_report]
+    russian_report_chunks = []
+    english_report_chunks = []
+
     for event_class in EVENT_CLASSES:
         event = event_class(log)
         if event.is_applicable():
-            russian_report.append(event.gen_wrapped_russian() + '. ')
-            english_report.append(event.gen_wrapped_english() + '. ')
+            russian_report_chunks.extend(event.gen_wrapped_russian())
+            english_report_chunks.extend(event.gen_wrapped_english())
+
+    reports = [join_sentences(russian_report_chunks), join_sentences(english_report_chunks)]
     return [''.join(report) for report in reports]
 
 
 def main():
     logs = load_logs('Hockey_Log.xlsx')
-    # pprint(logs)
+    pprint(logs)
     for log in logs:
         for report in form_report(log):
             print(report)

@@ -1,3 +1,7 @@
+DAWG-Python==0.7.1
+docopt==0.6.2
 jdcal==1.0
 openpyxl==2.1.5
+pymorphy2==0.8
+pymorphy2-dicts==2.4.393442.3710985
 six==1.9.0
