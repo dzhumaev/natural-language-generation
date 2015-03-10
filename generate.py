@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from collections import defaultdict
+from collections import defaultdict, Counter
+import operator
 from pprint import pprint
 
 import openpyxl
@@ -223,6 +224,22 @@ def say_player_en(player, team):
     return player['first_name']['en'] + ' ' + player['last_name']['en']
 
 
+def goal_type_en(goal):
+    return ' ' + goal['type'] if goal['type'] != 'scored' else ''
+
+
+def goal_type_amend_en(goals):
+    c = Counter(map(operator.itemgetter('type'), goals))
+    if c['shorthanded'] > 0:
+        type_ = 'shorthanded'
+    elif c['powerplay'] > 0:
+        type_ = 'powerplay'
+    else:
+        return ''
+    num = c[type_]
+    return ', ' + str(num) + ' of them being ' + type_
+
+
 class GoalsByPeriodEvent(Event):
     def __init__(self, log):
         super(GoalsByPeriodEvent, self).__init__(log)
@@ -287,22 +304,30 @@ class GoalsByPeriodEvent(Event):
                     if goal['minute'] % 20 >= 15:
                         suffix = ' in the end of the ' + ORDINAL_EN[i] + ' period'
                     chunks.append(
-                        say_player_en(goal['author'], team) + ' scored one goal' + suffix
+                        say_player_en(goal['author'], team) + ' scored one'
+                        + goal_type_en(goal)
+                        + ' goal' + suffix
                     )
                 else:
                     num_goals = len(goals)
                     chunks.append(
                         team + ' scored ' + str(num_goals) + ' '
                         + with_number_en(num_goals, 'goal') + suffix
+                        + goal_type_amend_en(goals)
                     )
             else:
                 (team1, goals1), (team2, goals2) = sorted(period.items(), key=lambda x: len(x[1]))
                 num_goals1 = len(goals1)
                 num_goals2 = len(goals2)
                 chunks.append(
-                    team1 + ' took the puck to the net ' + str(num_goals1) + ' '
-                    + with_number_en(num_goals1, 'time') + suffix + ', while ' + team2 + ' responded with '
-                    + str(num_goals2) + ' ' + with_number_en(num_goals2, 'goal')
+                    team1 + ' took the puck to the net'  + str(num_goals1) + ' '
+                    + with_number_en(num_goals1, 'time') + suffix + goal_type_amend_en(goals1)
+                    + ', while ' + team2 + ' responded with '
+                    + ('one' + goal_type_en(goals2[0]) + 'goal'
+                       if num_goals2 == 1
+                       else str(num_goals2) + ' ' + with_number_en(num_goals2, 'goal')
+                            + goal_type_amend_en(goals2)
+                      )
                 )
 
         return chunks
