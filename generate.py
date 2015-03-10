@@ -19,14 +19,14 @@ def to(word, *categories):
 
 
 def with_number_ru(number, word, *categories):
-    return morph.parse(word)[0].inflect(set(categories)).make_agree_with_number(number).word
+    return morph.parse(word)[0].inflect(set(categories) | {'sing' if number % 10 == 1 else 'plur'}).word
 
 
 def with_number_en(number, word):
     return word + ('s' if number > 1 else '')
 
 
-def make_player(ws, row_index):
+def make_player(ws, row_index, team):
     i = str(row_index)
     last_name_ru, first_name_ru = ws['E' + i].value.split()
     last_name_en, first_name_en = ws['C' + i].value.split()
@@ -34,6 +34,8 @@ def make_player(ws, row_index):
         'first_name': {'en': first_name_en, 'ru': first_name_ru},
         'last_name': {'en': last_name_en, 'ru': last_name_ru},
         'role': {'en': ws['D' + i].value, 'ru': ws['F' + i].value},
+        'number': ws['B' + i].value,
+        'team': team,
     }
 
 def load_logs(file_name):
@@ -62,9 +64,11 @@ def load_logs(file_name):
                 guest_team_last_row = i - 2
                 break
         for i in range(5, home_team_last_row+1):
-            log['players'][log['home-team']['en']][ws['B'+str(i)].value] = make_player(ws, i)
+            log['players'][log['home-team']['en']][ws['B'+str(i)].value] \
+                = make_player(ws, i, log['home-team'])
         for i in range(home_team_last_row+3, guest_team_last_row+1):
-            log['players'][log['guest-team']['en']][ws['B'+str(i)].value] = make_player(ws, i)
+            log['players'][log['guest-team']['en']][ws['B'+str(i)].value] \
+                = make_player(ws, i, log['guest-team'])
 
         row = ws.get_highest_row()
         log['score'] = [ws['B'+str(row-1)].value, ws['B'+str(row)].value]
@@ -332,9 +336,41 @@ class GoalsByPeriodEvent(Event):
 
         return chunks
 
+
+class AssistsEvent(Event):
+    def __init__(self, log):
+        super(AssistsEvent, self).__init__(log)
+        assists = Counter()
+        players = {}
+
+        for assist in log['assists']:
+            key = (assist['author']['number'], assist['team'])
+            assists[key] += 1
+            players[key] = assist['author']
+
+        key, self.num_assists = assists.most_common(1)[0]
+        self.top_player = players[key]
+
+
+    def gen_russian(self):
+        return [say_player_ru(self.top_player, self.top_player['team']['en'])
+                + ' отметился ' + str(self.num_assists) + ' '
+                + with_number_ru(self.num_assists, 'голевой', 'ablt') + ' '
+                + with_number_ru(self.num_assists, 'пасом')
+        ]
+
+    def gen_english(self):
+        return [say_player_en(self.top_player, self.top_player['team']['en'])
+                + ' contributed ' + str(self.num_assists) + ' '
+                + with_number_en(self.num_assists, 'assist')
+                + ' for the ' + self.top_player['team']['en']
+        ]
+
+
 EVENT_CLASSES = [WinnerEvent,
                  GoalsSummaryEvent,
                  GoalsByPeriodEvent,
+                 AssistsEvent,
                  ]
 
 
