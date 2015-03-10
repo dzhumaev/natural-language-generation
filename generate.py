@@ -143,13 +143,13 @@ class Event:
 
 class Pause(Event):
     def wrap(self, message):
-        return '<break time="1000ms"/>'
+        return ['<break time="500ms"/>']
 
 
 class HighPitchEvent(Event):
-    # def wrap(self, message):
-    #     return '<prosody rate="slow" pitch="high">' + message + '</prosody>'
-    pass
+    def wrap(self, message):
+        return ['<prosody rate="slow" pitch="high">' + sentence + '</prosody>'
+                for sentence in message]
 
 
 class WinnerEvent(HighPitchEvent):
@@ -178,7 +178,7 @@ def join_with_and_en(words):
     return join_with_and(words, 'and')
 
 
-class GoalsSummaryEvent(HighPitchEvent):
+class GoalsSummaryEvent(Event):
     def __init__(self, log):
         super(GoalsSummaryEvent, self).__init__(log)
         self.goals_by_team_ru = defaultdict(set)
@@ -324,7 +324,7 @@ class GoalsByPeriodEvent(Event):
                 num_goals1 = len(goals1)
                 num_goals2 = len(goals2)
                 chunks.append(
-                    team1 + ' took the puck to the net'  + str(num_goals1) + ' '
+                    team1 + ' took the puck to the net '  + str(num_goals1) + ' '
                     + with_number_en(num_goals1, 'time') + suffix + goal_type_amend_en(goals1)
                     + ', while ' + team2 + ' responded with '
                     + ('one' + goal_type_en(goals2[0]) + 'goal'
@@ -369,6 +369,7 @@ class AssistsEvent(Event):
 
 EVENT_CLASSES = [WinnerEvent,
                  GoalsSummaryEvent,
+                 Pause,
                  GoalsByPeriodEvent,
                  AssistsEvent,
                  ]
