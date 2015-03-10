@@ -9,12 +9,20 @@ import openpyxl
 import pymorphy2
 morph = pymorphy2.MorphAnalyzer()
 
+
+en_ru = {}
+
+
 def to(word, *categories):
     return morph.parse(word)[0].inflect(set(categories)).word
 
 
-def with_number_ru(number, word):
-    return morph.parse(word)[0].make_agree_with_number(number).word
+def with_number_ru(number, word, *categories):
+    return morph.parse(word)[0].inflect(set(categories)).make_agree_with_number(number).word
+
+
+def with_number_en(number, word):
+    return word + ('s' if number > 1 else '')
 
 
 def make_player(ws, row_index):
@@ -39,6 +47,8 @@ def load_logs(file_name):
         log['attendance'] = ws['D2'].value
         log['home-team'] = {'en': ws['E2'].value, 'ru': ws['E3'].value}
         log['guest-team'] = {'en': ws['F2'].value, 'ru': ws['F3'].value}
+        en_ru[log['home-team']['en']] = log['home-team']['ru']
+        en_ru[log['guest-team']['en']] = log['guest-team']['ru']
         log['players'] = defaultdict(dict)
         home_team_last_row = 4
         for i in range(4, 31):
@@ -197,7 +207,8 @@ class GoalsSummaryEvent(HighPitchEvent):
                 + ' replied for ' + self.log['loser']['en']]
 
 
-ORDINAL = ['первый', 'второй', 'третий']
+ORDINAL_RU = ['первый', 'второй', 'третий']
+ORDINAL_EN = ['opening', 'second', 'third']
 
 
 def join_sentences(sentences):
@@ -205,7 +216,11 @@ def join_sentences(sentences):
 
 
 def say_player_ru(player, team):
-    return player['role']['ru'] + ' ' + team + ' ' + player['last_name']['ru']
+    return player['role']['ru'] + ' ' + to(en_ru[team], 'gent').title() + ' ' + player['last_name']['ru']
+
+
+def say_player_en(player, team):
+    return player['first_name']['en'] + ' ' + player['last_name']['en']
 
 
 class GoalsByPeriodEvent(Event):
@@ -227,21 +242,21 @@ class GoalsByPeriodEvent(Event):
         chunks = []
         for i, period in enumerate(self.periods[:3]):
             if not period:
-                chunks.append(ORDINAL[i] + ' период оказался нерезультативным')
+                chunks.append(ORDINAL_RU[i] + ' период оказался нерезультативным')
             elif len(period) == 1:
                 team, goals = list(period.items())[0]
-                prefix = 'в ' + to(ORDINAL[i], 'loct') + ' периоде '
+                prefix = 'в ' + to(ORDINAL_RU[i], 'loct') + ' периоде '
                 if len(goals) == 1:
                     goal = goals[0]
                     if goal['minute'] % 20 >= 15:
-                        prefix = 'под конец ' + to(ORDINAL[i], 'gent') + ' периода '
+                        prefix = 'под конец ' + to(ORDINAL_RU[i], 'gent') + ' периода '
                     chunks.append(
                         prefix + say_player_ru(goal['author'], team) + ' забил одну шайбу'
                     )
                 else:
                     num_goals = len(goals)
                     chunks.append(
-                        prefix + ' удача была на стороне игроков ' + team
+                        prefix + 'удача была на стороне игроков ' + en_ru[team]
                         + ', которые забросили ' + str(num_goals) + ' '
                         + with_number_ru(num_goals, 'шайбу')
                     )
@@ -250,17 +265,47 @@ class GoalsByPeriodEvent(Event):
                 num_goals1 = len(goals1)
                 num_goals2 = len(goals2)
                 chunks.append(
-                    'в ' + to(ORDINAL[i], 'loct') + ' периоде ' + team1 + ' '
+                    'в ' + to(ORDINAL_RU[i], 'loct') + ' периоде ' + en_ru[team1] + ' '
                     + str(num_goals1) + ' ' + with_number_ru(num_goals1, 'раз')
-                    + ' поразил ворота соперников, ' + team2 + ' ответил ' + str(num_goals2) + ' '
-                    + with_number_ru(num_goals2, 'забитой') + ' '
+                    + ' поразил ворота соперников, ' + en_ru[team2] + ' ответил ' + str(num_goals2) + ' '
+                    + with_number_ru(num_goals2, 'забитой', 'ablt') + ' '
                     + with_number_ru(num_goals2, 'шайбой')
                 )
 
         return chunks
 
-    gen_english = gen_russian
+    def gen_english(self):
+        chunks = []
+        for i, period in enumerate(self.periods[:3]):
+            suffix = ' in the ' + ORDINAL_EN[i] + ' period'
+            if not period:
+                chunks.append('there were no goals scored' + suffix)
+            elif len(period) == 1:
+                team, goals = list(period.items())[0]
+                if len(goals) == 1:
+                    goal = goals[0]
+                    if goal['minute'] % 20 >= 15:
+                        suffix = ' in the end of the ' + ORDINAL_EN[i] + ' period'
+                    chunks.append(
+                        say_player_en(goal['author'], team) + ' scored one goal' + suffix
+                    )
+                else:
+                    num_goals = len(goals)
+                    chunks.append(
+                        team + ' scored ' + str(num_goals) + ' '
+                        + with_number_en(num_goals, 'goal') + suffix
+                    )
+            else:
+                (team1, goals1), (team2, goals2) = sorted(period.items(), key=lambda x: len(x[1]))
+                num_goals1 = len(goals1)
+                num_goals2 = len(goals2)
+                chunks.append(
+                    team1 + ' took the puck to the net ' + str(num_goals1) + ' '
+                    + with_number_en(num_goals1, 'time') + suffix + ', while ' + team2 + ' responded with '
+                    + str(num_goals2) + ' ' + with_number_en(num_goals2, 'goal')
+                )
 
+        return chunks
 
 EVENT_CLASSES = [WinnerEvent,
                  GoalsSummaryEvent,
